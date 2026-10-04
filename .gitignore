@@ -1,0 +1,15 @@
+/target/
+/.mac/
+*.sqlite3*
+*.log
+
+
+# Local credentials and development files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+__pycache__/
+.venv/

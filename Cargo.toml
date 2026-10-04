@@ -1,0 +1,40 @@
+[package]
+name = "multi-agent-on-chat"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "mac"
+path = "src/main.rs"
+
+[[bin]]
+name = "mac-cli"
+path = "src/bin/mac-cli.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.15"
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
+shlex = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+qrcode = { version = "0.14", default-features = false }
+fs2 = "0.4"
+aes = "0.8"
+md5 = "0.7"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+
+[dev-dependencies]
+tempfile = "3"

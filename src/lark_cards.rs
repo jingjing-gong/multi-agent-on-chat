@@ -232,9 +232,10 @@ fn fold_sections(text: &str) -> (Option<&str>, &str) {
 }
 pub(crate) fn folded_card(progress: bool, text: &str) -> Value {
     let mut elements = Vec::new();
+    let mut footer = None;
     let (body, label) = if progress {
         let (body, status) = text.rsplit_once("\n\n— ").unwrap_or((text, "已完成"));
-        elements.push(json!({"tag":"markdown","content":status}));
+        footer = Some(format!("— {status}"));
         (body, "展开 / 折叠过程")
     } else {
         let (intro, rest) = fold_sections(text);
@@ -247,6 +248,9 @@ pub(crate) fn folded_card(progress: bool, text: &str) -> Value {
     elements.push(json!({"tag":"collapsible_panel","expanded":false,
         "header":{"position":"bottom","title":{"tag":"plain_text","content":label}},
         "elements":[{"tag":"markdown","element_id":"body","content":crate::lark_markdown::normalize(body)}]}));
+    if let Some(status) = footer {
+        elements.push(json!({"tag":"markdown","content":status}));
+    }
     json!({"schema":"2.0","config":{"streaming_mode":false,"summary":{"content":summary(text)}},
         "body":{"elements":elements}})
 }
@@ -301,9 +305,9 @@ mod fold_tests {
             (None, "| a | b |\n\n| c | d |")
         );
         let progress = folded_card(true, "正在查资料\n\n— 已完成");
-        assert_eq!(progress["body"]["elements"][0]["content"], "已完成");
+        assert_eq!(progress["body"]["elements"][1]["content"], "— 已完成");
         assert_eq!(
-            progress["body"]["elements"][1]["elements"][0]["content"],
+            progress["body"]["elements"][0]["elements"][0]["content"],
             "正在查资料"
         );
     }

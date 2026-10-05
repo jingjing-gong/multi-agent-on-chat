@@ -1,138 +1,109 @@
-> 2026-09-28 实施更新：用户已授权 Rust 实现，mac-cli 为主要控制面（mac 兼容）。个人使用、Codex 引擎、全局最多 20 个 worker；用户消息 steer，Agent query 使用配置副本和可复用协作上下文。先更新计划再实现的新增契约见 [CLI 控制面](cli-control-plane.md)，可运行能力、验证结果及剩余工作见 [README](../README.md)。本文后续早期“仅规划/待授权”状态已被覆盖，未实现条目仍为目标设计。
+# 当前架构与运行契约
 
-# 当前完整架构：汇总评审版
+核对日期：2026-10-05。本文描述当前代码中的实现，作为设计主入口；操作语法见[命令参考](commands.md)，专题和验证边界见[文档索引](README.md)。早期方案保留在[历史目录](history/README.md)，不作为现行契约。代码事实与部署、验收状态必须分开；未来方案不混入下列实现说明。
 
-实施状态更新（2026-09-28）：用户已授权开始实现，并新增CLI优先架构，见 [mac-cli控制与调试架构](cli-control-plane.md)。旧“设计阶段”段落保留历史参考，不再表示缺少实现授权。
+## 1. 范围与模块
 
-状态：设计阶段，未授权实现。本文汇总最新会话决定；专项文档中的历史候选与本文不一致时，以本文标注的最新状态为准。未标为已确认的技术选择仍是建议。
+这是面向个人使用的 Rust 模块化单体：一个本地服务管理多个 Bot、Agent 和任务；首个且当前唯一的执行引擎是 Codex app-server。主要控制入口为 mac-cli，mac 保留兼容入口。渠道支持 local、微信和飞书；渠道凭据与模型 provider 配置分开。
 
-最新选择：个人使用、采用 Rust 实现、首个引擎 Codex、最多 20 Worker、普通消息指导当前工作；主会话配置更新后切换，有上下文时 postpend。此更新覆盖下文相应旧待定项；OS、群聊粒度与 Codex 更新接口仍待细化。详见 [模板字段与配置边界](template-fields.md)。
-
-## 1. 目标与核心关系
-
-项目目录 `~/projects/multi-agent-on-chat`。通过微信、飞书等聊天入口管理 Agent，支持多轮工作、Agent 协作与定时执行。已明确要求两平台扫码入口；具体渠道依赖与首版完整支持范围仍待定。
-
-已确认：一个 Bot 管理多个 Agent 实例，每个实例固定属于一个 Bot；跨 Bot 复用模板而不共享实例。Bot + Agent 联合定义功能和权限。Agent 对外操作使用所属 Bot 身份，实际本地进程身份由部署隔离方案决定。
-
-```text
-微信 / 飞书
-     ↓
-Channel Adapter → Bot：渠道身份、入口策略、信息提供器
-     ↓
-控制平面：身份 / 权限 / 命令 / 路由 / 调度 / 持久化
-     ↓
-Agent（固定 bot_id，来自模板并保存实例配置版本）
- ├─ 用户会话：接收普通消息与运行中指导
- ├─ 协作会话：配置快照 + 独立上下文，多轮续接
- └─ Cron 执行会话：每次触发独立上下文
-     ↓
-Engine Adapter → 引擎与受控工具执行
-     ↕
-持久化协作邮箱 → 其他 Bot / Agent 下的协作会话
-     ↓
-结果与 Outbox → 固定来源 Bot / 聊天 / 话题
-```
-
-## 2. 对象模型
-
-| 对象 | 内容 | 状态 |
+| 层 | 当前职责 | 代码入口 |
 | --- | --- | --- |
-| Bot / ChannelAccount | 业务入口与实际平台账号分开；凭据由服务端管理 | 职责已确认，字段待细化 |
-| AgentTemplate | 角色、system prompt、引擎/模型默认值、技能、能力与上下文需求 | 可配置新建已确认；YAML/版本注册是当前方案 |
-| Agent | 固定 Bot、实例配置、工作区、会话与任务所属关系 | 已确认 |
-| ConfigRevision | 实例配置的不可变版本，与模板版本区分 | 协作固定版本已确认，编辑界面细节待定 |
-| Session | 独立上下文及引擎会话引用，可分用户、协作、cron 类型 | 当前设计 |
-| Task / Run | 一次工作目标与一次具体执行尝试分开 | 可靠性建议 |
-| Collaboration | 多轮协作关联 ID、参与者、来源、会话及状态 | 多轮语义已确认 |
-| CronJob / Occurrence | 定时规则与一次计划触发记录分开 | 核心执行语义已确认 |
-| Delivery / Artifact | 投递状态与输出文件/附件引用 | 当前设计 |
+| 领域对象 | Bot、Template、Agent、Session、Task、Job 与回复目标 | src/domain.rs |
+| 应用用例 | Scope 校验、Agent 配置、命令、cron 草案、媒体与回复模式 | src/application/ |
+| 存储 | SQLite 事务、JSON 快照、输入、任务、触发记录与投递队列 | src/store.rs、src/store/ |
+| 运行编排 | 接入监听、命令执行、任务调度、引擎事件、回收 | src/service.rs |
+| 引擎 | Codex app-server 请求、事件、工具与 profile 配置 | src/engine.rs、src/skills.rs |
+| 呈现和投递 | 共用消息格式、持久化投递计划、渠道编码、流式卡片 | src/presentation.rs、src/message.rs、src/delivery.rs、src/reply_stream.rs、src/channels/ |
+| 媒体 | 附件下载、资产与授权检查、本地解析任务 | src/media/、src/application/media.rs |
 
-## 3. 模板与动态配置
+service.rs 仍承担较多编排职责；这不是已经完全拆分的独立组件系统。已有应用层和渠道适配边界见[命令架构](command-architecture.md)。
 
-模板不含用户历史、任务、凭据或实际授权。创建实例时绑定 Bot 与工作区，检查所需能力。当前方案为 YAML + 注册校验，模板版本不可变，创建实例保存配置快照。模板更新不自动更新实例。
+## 2. 对象、身份和配置
 
-实例可以发布自己的 config_revision；`/system`、`/model` 等配置命令规划为新版本修改入口。具体编辑权限、主用户会话生效边界及首版实现优先级仍待定。临时协作固定创建时版本，新协作读取新版本；Job 固定创建或明确更新时版本。撤权与停用不受旧版本冻结限制。
+- Bot 保存渠道、账号、凭据引用、owner 与启用状态。平台接入和监听属于 Bot；Bot 身份不表示独立操作系统账户或独立 Codex 登录。
+- Template 是创建 Agent 时使用的配置快照来源。字段为 id、version、description、system_prompt、profile、model、effort、skills、skills_mode；没有独立图片 API 路由字段。
+- Agent 固定归属一个 Bot，保存配置、revision、workspace 与启用状态。创建时复制模板，修改模板不会自动更新已有 Agent。
+- Session 保存工作目录和配置快照，区分 user、collaboration 和 cron 上下文。Task 保存一次工作请求、generation、结果、父请求关联及回复目标。
+- Job 保存调度、时区、冻结的 Agent 配置和工作目录；Occurrence 表示一次应触发时间，关联 Task。任务执行状态与投递状态独立。
 
-## 4. 上下文与身份
+主用户会话在下一次引擎边界应用 Agent 配置 revision 的变化；协作/cron 保持自己的快照。profile 的外部文件或依赖仍可能变化，快照不等于冻结整个外部运行环境。
 
-Conversation Context 由 Agent Runtime/Session Manager 管理，包括历史、工具结果、摘要及引擎续接。Bot 不维护第二套模型历史，仅保留收发与审计记录。物理存储可集中，语义职责不变。
+模板 from-agent 导出当前配置并覆盖同名同版本的登记模板；已有 Agent、Session 和 Job 快照不变。模板删除只删除登记版本，default@1 不能删除。
 
-Bot Context 渐进披露：模型先看到必要入口摘要及可查询能力，在需要时查询项目绑定、渠道能力或业务信息。真实执行身份、权限与回复目标由运行时持有，不必全部写入提示词。
+聊天入口执行 owner 与 Bot 范围校验；跨 Agent query 的来源由服务端绑定。该部署按个人使用的信任模型运行，不提供多租户操作系统隔离，也不把模型输出中的任意目标当成发送授权。
 
-身份职责的建议链：平台认证事件 → 适配器核验 → Identity 模块解析主体 → Policy 联合检查用户、Bot、Agent 和资源权限 → 工具执行。requester、sender、executor、credential_subject、audience 分开，显示名和模型自称不作为身份凭据。
+## 3. 接入与消息路由
 
-Agent 使用所属 Bot 身份执行已确认；不支持 Bot 身份的外部 API 不静默改用个人账号是当前建议。私聊按用户隔离、群聊按群和话题共享是待确认候选，不能从固定 Agent 归属推导所有用户共享同一历史。
+Bot 接入支持微信扫码、飞书应用凭据或扫码流程。凭据留在数据目录；注册、owner 绑定和监听 ready 是不同状态。飞书 CLI 通过配置目录区分 Bot，长路径经 lark_runtime 的短路径入口适配。
 
-## 5. 用户输入、steer 与任务控制
+入站事件经渠道解析、去重和命令/普通文本路由。命令持久化后由命令处理流程执行；普通用户输入提交到对应用户上下文，已有活动工作时作为持久化追加输入，在引擎支持的边界 steer/继续执行。/clear 创建新的用户上下文，不隐式取消旧任务。
 
-用户明确希望：Agent 忙时，通过 Bot 发来的普通消息直接作为 steer 进入当前会话。该方向保留，具体生效时机要核实引擎接口。输入已持久化、引擎已接受、模型已看到指导应能区分；运行中的 shell 或 API 不因 steer 自动回滚。cancel 独立处理。
+Agent query 建立关联任务和隔离的协作上下文；可复用协作上下文不等于共享用户主会话。父请求与子响应通过服务端关联和持久化输入传递。等待依赖不持续占用执行槽。历史设计中的完整通用 Mailbox/任意 fan-out 状态机不应视为全部已实现。
 
-明确的新工作与当前指导如何区分、多人同时在群聊指导谁、引擎不支持 steer 时是否下一轮应用或拒绝，均待定。控制命令由程序解析，不交给模型决定其权限。
+## 4. 调度、取消和恢复
 
-`/sh` 已明确保留：在已授权工作区执行有界 shell，记录发起者、Bot、Agent、目录与结果；共享目录与模型工具并发写入应遵守同一资源锁或工作区隔离规则。时限、输出限制、后台进程管理待定。
+Agent 队列由 serve --workers 控制，范围 1–20。队列内同一会话及规范化工作目录串行；不同 Agent 共享工作目录时也受此限制。
 
-## 6. Agent 通讯与临时协作会话
+/sh 使用独立的最多 4 个 shell 执行槽，与 Agent 队列并行；shell 队列内同工作目录串行。因此 shell 和 Agent 工具可能同时操作同一工作目录，不能宣称全局工作目录互斥。shell 的目录在提交时固定，当前限时 30 秒，每个输出流最多保存 16 KiB，并支持进程组清理和取消。
 
-交互已明确为非对称 query/response：A 请求，B 回答，A 通过自己所属 Bot 展示或使用结果，并自主决定是否继续向 B 追问。A 不需要回应每个答案。Mailbox 是这一协议背后的持久化消息存储和投递实现，不要求双方轮流聊天；单次请求与多轮协作会话分开记录。B 回答后无新请求即可空闲，不占执行槽等待 A 回应。
+当前任务主要状态包含 queued、running、waiting_dependency、cancel_requested、succeeded、failed、cancelled、interrupted；其他状态是否可用以实际处理分支为准，不沿用早期候选状态表。generation 和事务条件拒绝过期执行器写回。取消请求与最终完成分开，终态写入再次检查当前代次和取消状态。
 
-最新用户方向是 Agent 间全通，包含跨 Bot；不再默认采用逐对配置通讯白名单。全通指向何种部署/信任范围、是否所有管理域都可发现和调用仍待定。可通讯不意味着历史、文件和外部资源自动全开放，操作与结果权限需另行定义。
+服务重启将未完成执行转入中断恢复流程，不自动重放可能已经造成外部副作用的请求。执行前失败和提交后结果未知有不同错误分类。投递失败只重试投递，不重新执行模型任务。
 
-已确认流程：首次调用目标 Agent 创建临时协作会话，只继承目标有效配置，不复制主会话历史、正在执行的工具或任务。身份仍属于目标 Bot。随后按 collaboration_id 续接原会话自己的最新上下文。独立工作使用新 ID，同一对 Agent 不自动混用上下文。
+## 5. 定时任务
 
-配置版本固定，返回结果通过持久化邮箱关联原请求，不自动合并完整历史回目标主会话。collaboration_id 不是访问授权，续接必须检查来源与权限。请求/消息具有独立幂等 ID，多轮会话 ID 与单次 Task ID 分开。
+实现入口：src/application/cron.rs、src/store/cron.rs、src/schedule.rs。
 
-同一会话串行，不同会话可并行，受全局/Bot/Agent 限额和资源锁约束。等待依赖时保存状态并释放执行槽。跨 Agent 递归须有限深度、次数、时间与费用预算，具体参数待定。
+聊天 /cron add 生成 15 分钟有效的草案，后续输入确认才创建 Job；重复确认复用创建结果。支持 at、every、cron 和显式 IANA 时区。应使用本项目 /help cron 的语法，不把其他机器人的定时 CLI 当成本项目命令。
 
-## 7. 会话生命周期与进程
+每次触发创建独立 cron 会话，使用 Job 冻结配置和目录，不污染用户主会话。同一 Job 有 queued/running/waiting_dependency/cancel_requested/interrupted/needs_attention 的关联工作时，本轮记为 skipped_overlap；迟到超过 3600 秒记为 missed。Occurrence 对 Job 和计划时间去重，阻止重复触发。Agent/Bot 不可用时 Job 可进入 blocked，后续修复由管理操作处理。
 
-建议逻辑状态分为运行、等待输入、等待依赖、空闲、关闭、过期。每轮完成不等于整段协作关闭。已完成且无在途操作的闲置会话可回收运行资源；会话上下文与任务审计各有保留期。
+暂停/恢复/删除 Job 与取消某次 Task 是不同操作。创建、触发、执行和回传分别持久化；实时启用与身份检查仍适用，冻结配置不授予额外权限。
 
-运行资源回收但引擎状态还在时恢复原会话；不支持原生恢复时，只在条件满足并明确告知的情况下摘要重建。记录已过期则新建会话，不伪装为原会话。回收与消息接收通过事务/版本检查协调，避免丢失刚收到的追问。
+## 6. 模型、工具与 Skills
 
-独立 Worker 故障隔离是建议。每 Agent 管理进程+会话执行器，或按活动会话起进程的选型尚未定，不能继续沿用每 Agent 全局单执行槽。独立进程不等于同 UID 下的文件/凭据安全隔离。
+Agent 的 profile、model、effort 传给 Codex 引擎；/model default 和 /model effort default 分别清除对应覆盖。/model list 根据有效 profile/provider 查询：自定义 provider 的 /models，或内置 OpenAI 的 Codex model/list（完整分页）。未返回的推理强度信息表示未知，不证明模型不支持。
 
-## 8. Cron
+当前没有直接调用 /images/generations 或 /images/edits 的专用执行器，没有 --api 模型选择选项；相关实验已回退。图片任务如通过 Skill 实现，仍由支持工具的对话引擎执行该 Skill，而非把图片模型当作 Codex 对话模型。
 
-已确认三项：每次触发独立上下文；Job 固定配置版本；同 Job 上次未完成则跳过重叠触发。独立会话不干扰用户 steer 通道。具体某次结果的追问可以关联该次会话，下一次周期执行仍新建。
+Skills 支持继承和允许列表，配置路径/依赖在引擎连接时解析。Agent worker 默认启用已安装的 unified-computer-use 插件；默认加载不扩大应用访问授权。工具执行返回结果，附件发布由媒体用例限定到当前任务目标，不接受任意替代收件人。
 
-参考旧项目建议支持 at/every/五字段 cron，明确时区，时间存 UTC。自然语言先草案、后续确认才启用；每次触发原子创建 Occurrence+Task 并推进 next_fire_at，通过 (job_id, scheduled_for) 去重。固定原 Bot/chat/topic 投递。
+## 7. 回复与卡片
 
-停机最多补一次且有限迟到宽限、暂停不取消当前执行、恢复不补暂停期、删除保留历史都是当前建议，细节尚待批准。若执行副作用不明，不能只因进程失联就重跑或放行重叠执行。
+命令通过公共 presentation/message 层生成输出，-r 保持原始 JSON；投递计划及各部分检查点持久化。远端接收与本地确认之间存在未知窗口，依赖渠道幂等能力，不能宣称所有渠道严格恰好一次。
 
-## 9. Bot 扫码接入
+异步命令只在持久化记录具备后续回复目标时省略受理回执。/cancel 和强制停用 Agent 使用完成聚合记录避免重复回复；同步查询与错误立即回复。
 
-已确认命令 `mac bot add lark` 和 `mac bot add wechat`。展示二维码 → 平台扫码确认 → 核验身份/能力 → 注册配置 → 启用与健康反馈。微信账号接入与 Lark 应用配置的流程由各适配器实现，不把两者平台身份语义混同。
+飞书默认 card，微信和其他渠道默认 off，显式 Bot 配置优先。progress 发送完整过程消息；card 收集 commentary/final_answer 为独立过程卡片和答案卡片。/stream 可查看、设置或清除当前 Bot 覆盖项，无需重启。
 
-建议暂存凭据、去重账号、取消清理、到期刷新、注册和启用失败状态分开。已运行服务由本地管理接口处理注册，离线模式取得独占锁；该热接入方式仍待技术确认。扫码不自动赋予全局管理权，不自动建立跨平台用户映射。
+卡片生成时持续更新，完成后关闭流式再进行独立折叠操作。过程卡片默认折叠，终态“— 已完成”等固定放在面板后的末尾；答案超过 300 个 Unicode 字符或 8 行时按安全段落拆分，避免摘要与展开正文重复。折叠失败保留展开正文，不补发重复普通消息；历史 closed 卡片不批量重写。协议、续开与验收边界见[流式回复](reply-streaming.md)。
 
-Bot 添加与 Agent 创建分开，默认不隐式创建 Agent。管理主体、默认 Agent 引导、多微信账号边界及依赖版本尚待定。
+## 8. 媒体与解析
 
-## 10. 持久化、恢复与投递
+附件通过持久化入站准备流程成为受 Bot/会话范围约束的资产。模型输入使用已准备资产；media_publish 校验当前任务状态、generation 和工作区文件路径，导入不可变快照并原子关联发布，重试复用发布记录。
 
-已确认 Rust 实现控制平面与 CLI。建议模块化单体+SQLite WAL+文件系统附件；Tokio、存储驱动与物理执行拓扑待细化，后续有多机/高可用需求再评估 PostgreSQL。
+已实现本地文本/PDF 解析作业、分页结果和限制；未配置 OCR/ASR 时不会自动选择外部服务。微信语音只使用平台已有 voice_item.text；缺少转写时不声称完成自动语音识别。详见[媒体实施](media-implementation.md)、[PDF 解析](pdf-extraction.md)和[后续阶段](media-next-stages.md)。
 
-关键记录：Bot/账号/身份、模板/版本、Agent/配置、Session/协作、Task/Run/事件、Inbox/Outbox/Delivery、CronJob/Occurrence、附件与审计。存储接口负责事务，Worker 不任意改写业务状态。
+## 9. 持久化、运行和验证
 
-任务关键状态：queued、running、waiting_input、waiting_dependency、cancel_requested、succeeded/failed/cancelled、interrupted/needs_attention。通过租约、执行代次和条件更新拒绝旧 Worker 写回。
+运行数据位于独立数据目录，包括 SQLite、凭据、媒体、日志和回复模式配置；源码仓库不保存这些内容。代码已纳入本地 Git；是否存在远程及推送状态以 git remote 和远端核验为准，不在设计文档中假定。
 
-入站去重、任务创建持久化、事件归约幂等、终态与待投递结果同事务提交。投递失败只重试投递；外部副作用不明进入人工处理或明确恢复流程。平台不支持幂等发送时，不承诺端到端严格一次。
+变更执行逻辑需运行相应测试；文档整理仅需核对代码和链接，不为文档变更重启服务。服务更新在无活动任务时进行，启动后核对 heartbeat 和恢复状态。
 
-## 11. 命令入口
+自动化测试覆盖事务、取消、恢复、命令路由、媒体快照、模型目录及卡片协议等；这不等于真实平台端到端验收。外部平台限流、长时间续开、最新客户端视觉、音视频/OCR 和完整灾备演练的边界，应在对应专项文档逐项维护。
 
-完整语法见 [规划命令表](commands.md)。当前保留：help/clear/compact/cd/sh/skills、技能快捷输入、status/tasks/retry/cancel；agents/agent use/create/delete、templates/template show、ask/collaborations/collaboration show；system/model、inbox，以及微信条件命令 recv；cron add/list/show/pause/resume/update/history/delete/help。
 
-管理 CLI 提供扫码加 Bot、配置/启停、模板校验/注册/查询/归档、引擎专用配置。notify 已删除，必要通知保留；reset/report/旧技能别名删除，models/delagent 收拢，mode 类暂不纳入。CLI 程序名 mac 当前沿用讨论命名，安装与打包细节未定。
+## 10. 代码与测试索引
 
-## 12. 剩余确认优先级
+后续修改优先核对这些对应关系，而不是沿用历史方案中的候选接口。
 
-| 优先级 | 事项 | 当前建议/需要输入 |
+| 契约 | 实现 | 主要测试 |
 | --- | --- | --- |
-| 已定/细化 | 使用者与信任范围 | 个人使用；建议本人同部署 Agent 全通，外部聊天用户的访问规则另定 |
-| 部分已定 | 首批引擎与部署 | Codex、最多 20 Worker；OS 和具体引擎接入方式待定 |
-| 高 | 用户会话粒度与控制权 | 私聊/群聊/话题隔离、群成员谁能 steer/取消/查询 |
-| 部分已定 | 多轮消息关联 | 普通消息指导当前工作；明确回复协作/cron 结果的路由和引擎 steer 时机待定 |
-| 部分已定 | 配置生效和编辑范围 | 主会话更新后切换，有历史则 postpend；真实参数切换与指令层级待核验 |
-| 中 | 限额/回收/cron 细节 | 并发数、预算、TTL、历史保留期、迟到宽限和重试；由设计给默认值再确认 |
-| 中 | 工程与交付范围 | 新旧项目迁移关系、附件/语音/卡片、热接入、备份恢复与发布环境 |
+| 对象与任务事务 | [domain](../src/domain.rs)、[store](../src/store.rs) | [runtime](../tests/runtime.rs) |
+| 模型目录与 profile | [engine](../src/engine.rs)、[model_catalog](../src/model_catalog.rs) | [model_catalog](../tests/model_catalog.rs)及 engine 内测试 |
+| 命令范围与输出 | [help](../src/help.rs)、[application](../src/application/mod.rs)、[presentation](../src/presentation.rs) | [application_commands](../tests/application_commands.rs)、[command_presentation](../tests/command_presentation.rs) |
+| 回复模式与卡片 | [stream](../src/application/stream.rs)、[reply_stream](../src/reply_stream.rs)、[lark_cards](../src/lark_cards.rs) | [reply_stream](../tests/reply_stream.rs)及模块内测试 |
+| cron 草案与触发 | [application cron](../src/application/cron.rs)、[store cron](../src/store/cron.rs)、[schedule](../src/schedule.rs) | runtime 与应用命令测试 |
+| 媒体快照与发布 | [media](../src/media/mod.rs)、[application media](../src/application/media.rs) | [media_publish](../tests/media_publish.rs)、[media_assets](../tests/media_assets.rs)、[media_extractions](../tests/media_extractions.rs) |
 
-这些确认完成后再定接口 schema、错误码、具体配置与验收，最后由用户明确批准实现。当前所有更改仅为设计文档。
+本次整理核对了以上代码入口和现存测试定义，没有重新执行真实平台验收或全套运行测试。

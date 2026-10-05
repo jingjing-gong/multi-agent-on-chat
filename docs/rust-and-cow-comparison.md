@@ -1,5 +1,7 @@
 # Rust 选型与 COW 对比
 
+> 分类：阶段性比较。当前实现与剩余能力以 [当前架构](current-design.md) 和专题文档为准。
+
 用户已确认 Rust 控制平面与 CLI，Codex 引擎、个人使用、最多 20 Worker。仍只设计，不创建 Cargo 工程。建议 Tokio 异步运行时、Serde 接口数据、SQLite 持久化；库与版本、执行器拓扑待定。外部 Codex/渠道 CLI 无须随控制面全部重写。
 
 ## COW 已有能力

@@ -1,5 +1,7 @@
 # multi-agent-on-chat
 
+设计入口：[文档索引](docs/README.md) · [当前架构](docs/current-design.md) · [现行命令参考](docs/commands.md)。历史方案集中在 docs/history；下文保留使用和操作说明。
+
 渐进回复支持按 Bot 开关：微信完整进度消息、飞书 CardKit 流式卡片，共用任务输出与持久化投递状态。配置、降级与验收边界见 [渐进回复说明](docs/reply-streaming.md)。
 
 `/sh` 使用独立的 4 个 shell 执行槽，不等待 Agent 任务或其工作区占用；同工作区的 shell 命令按提交顺序执行。Agent worker 数量仍由 `serve --workers` 控制。命令仍在提交时固定的工作目录执行，沿用任务记录、取消和结果回传。
@@ -43,7 +45,7 @@ Rust 个人多 Bot / Agent 运行时。主要入口 mac-cli，mac 为兼容名�
     mac-cli events --follow
     mac-cli stop
 
-真实执行使用 mac-cli serve --workers 20。上限 20；相同会话和规范化工作目录串行；等待子查询释放 worker。
+真实执行使用 mac-cli serve --workers 20。Agent 执行槽上限 20；Agent 队列内相同会话和规范化工作目录串行，等待子查询释放 worker。/sh 使用另一条最多 4 槽的队列，只与同队列工作目录互斥。
 
 
 ## 默认开箱即用流程
@@ -72,7 +74,7 @@ init 自动注册 default@1 模板，profile/model/effort/额外 system prompt �
 | inspect | agent/bot/session/task/job/template/command/draft/control |
 | cron | add 草案、confirm、cancel-draft、drafts、list、show、pause、resume、delete、history、update |
 
-聊天实现：/help、/clear、/compact、/cd、/sh、/skills、/status、/tasks、/cancel、/retry、/agent（查看/list [-g]/use/create/delete；list 默认当前 Bot，-g 列出全部）、/template（列表/list/show/from-agent/help）、/system、/model（查看/设置/effort/list）、/ask、/collaborations、/collaboration show、/inbox、/recv、/cron。普通消息指导当前任务，无需 /steer；无 /notify。
+聊天实现：/help、/stream、/profile、/media、/clear、/compact、/cd、/sh、/skills、/status、/tasks、/cancel、/retry、/agent（查看/list [-g]/use/create/delete；list 默认当前 Bot，-g 列出全部）、/template（列表/list/show/from-agent/help）、/system、/model（查看/设置/effort/list）、/ask、/collaborations、/collaboration show、/inbox、/recv、/cron。普通消息指导当前任务，无需 /steer；无 /notify。
 
 无参数的 `/agent` 显示当前 Agent、所属 Bot、来源模板和当前配置；`/bot`、`/profile`、`/model`、`/system`、`/cd` 显示各自当前配置。模型和推理强度未显式设置时标明继承来源，不推断实际运行值。`/cron` 等同 `/cron list`，只列当前 Bot 未删除的任务；空列表提示创建草稿的用法。`/skills`、`/template` 保留列表默认行为，执行类命令保留原有语义。
 

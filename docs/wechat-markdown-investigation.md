@@ -1,5 +1,7 @@
 # WeChat iLink Markdown investigation
 
+> 分类：调查记录。客户端行为具有版本和渠道范围；现行输出契约见 [命令输出](command-output.md)。
+
 Inspected the published Tencent package `@tencent-weixin/openclaw-weixin` 2.4.9 on 2026-09-28. Package registry: https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin
 
 Reproducible source archive: https://registry.npmjs.org/@tencent-weixin/openclaw-weixin/-/openclaw-weixin-2.4.9.tgz

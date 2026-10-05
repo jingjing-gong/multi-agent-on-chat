@@ -1,5 +1,7 @@
 # 多媒体消息、资产与交付设计
 
+> 分类：目标设计。当前已实现范围以 [媒体实施](media-implementation.md) 和 [PDF 解析](pdf-extraction.md) 为准；下文待确认/后续能力不表示已经提供。
+
 日期：2026-09-30。状态：用户已确认实施；实际完成范围、验证与边界见 [media-implementation.md](media-implementation.md)。下文保留目标设计，不将尚未完成的目标视为已交付。
 
 ## 1. 目标与范围

@@ -25,7 +25,9 @@ pub async fn serve(store: Store, workers: usize, mock: bool) -> Result<()> {
     lock.try_lock_exclusive()
         .context("another service owns this data directory")?;
     for agent in store.list::<Agent>("agent")? {
-        crate::runtime_identity::workspace_check(&store.root, &agent.workspace)?;
+        if agent.enabled {
+            crate::runtime_identity::workspace_check(&store.root, &agent.workspace)?;
+        }
     }
     store.initialize_defaults()?;
     store.save("control", "shutdown", &false)?;

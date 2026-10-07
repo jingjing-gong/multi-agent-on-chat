@@ -73,6 +73,15 @@ pub fn preflight(root: &Path) -> Result<()> {
     // Format 0 is the legacy compatible schema. Never reset a newer marker.
     Ok(())
 }
+fn canonical_reserved(path: &Path) -> Result<PathBuf> {
+    if path.exists() {
+        return Ok(path.canonicalize()?);
+    }
+    let parent = path
+        .parent()
+        .context("workspace has no resolvable parent")?;
+    Ok(canonical_reserved(parent)?.join(path.file_name().context("workspace filename missing")?))
+}
 pub fn workspace_check(root: &Path, workspace: &Path) -> Result<()> {
     if !root.join("instance.json").exists() {
         return Ok(());
@@ -109,9 +118,7 @@ pub fn workspace_check(root: &Path, workspace: &Path) -> Result<()> {
         for row in rows {
             let record: Value = serde_json::from_str(&row?)?;
             if let Some(p) = record["workspace"].as_str() {
-                let p = Path::new(p)
-                    .canonicalize()
-                    .context("other instance workspace cannot be resolved")?;
+                let p = canonical_reserved(Path::new(p))?;
                 if workspace.starts_with(&p) || p.starts_with(&workspace) {
                     bail!("workspace overlaps another instance: {}", p.display());
                 }

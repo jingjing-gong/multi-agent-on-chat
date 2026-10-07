@@ -145,7 +145,7 @@ def promote(v,identifier,timeout):
     if daemon and live(d) and daemon.get('identity',{}).get('release')!=old['release']:fail('Registered release and running daemon differ')
     journal=ROOT/'deployments'/f'{v["name"]}.json'
     if journal.exists() and read(journal).get('state') not in ['complete','failed_before_stop']:fail('Incomplete deployment exists; inspect journal and recover explicitly')
-    state={'state':'preflight','old':old,'new':new,'created_at':int(time.time())};atomic(journal,state)
+    state={'state':'preflight','old':old,'new':new,'mock':bool(daemon and daemon.get('mock')),'created_at':int(time.time())};atomic(journal,state)
     try:stop_drained(old,timeout)
     except Exception:
         state['state']='failed_before_stop';atomic(journal,state);raise
@@ -153,7 +153,7 @@ def promote(v,identifier,timeout):
     state['backup']=backup(old);state['state']='backed_up';atomic(journal,state)
     # Database schema 3 is compatible with current builds; no implicit migrations.
     atomic(ROOT/'instances'/f'{v["name"]}.json',new);state['state']='selected';atomic(journal,state)
-    result=start(new);state['state']='complete';state['result']=result;atomic(journal,state)
+    result=start(new,mock=state['mock']);state['state']='complete';state['result']=result;atomic(journal,state)
     return state
 
 def register(args):
@@ -220,7 +220,7 @@ def main(argv):
                 if live(Path(v['data_dir'])):fail('Stop the running instance before recovering a deployment')
                 chosen=state[a.use];release(chosen['release']);db_daemon(Path(chosen['data_dir']))
                 atomic(ROOT/'instances'/f'{v["name"]}.json',chosen)
-                result=start(chosen);state['state']='complete';state['recovered_using']=a.use;state['result']=result;atomic(path,state)
+                result=start(chosen,mock=state.get('mock',False));state['state']='complete';state['recovered_using']=a.use;state['result']=result;atomic(path,state)
                 return state
         v=config()
         with operation(v['name']):return promote(v,a.id,a.timeout)

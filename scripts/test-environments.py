@@ -34,6 +34,8 @@ with tempfile.TemporaryDirectory(prefix='mac-env-test-') as temp:
         assert call('service','resume')['draining'] is False
         call('service','start','--mock',ok=False)
         call('service','restart','--mock','--timeout','10')
+        call('release','promote',release,'--timeout','10')
+        assert call('status')['daemon']['mock'] is True
     finally:
         call('stop')
         for _ in range(100):

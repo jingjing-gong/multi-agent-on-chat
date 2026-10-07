@@ -35,7 +35,7 @@ env check 当前检查配置绑定、发布哈希和服务状态；不宣称完�
     mac-cli service resume
     mac-cli stop
 
-start/restart 使用独立日志和固定发布路径，启动后校验实际 daemon 身份。stop 仍是原始停止请求，可能中断未完成工作；日常发布应使用 restart/promote 的排空流程。当前为脱离终端的后台进程管理，不包含 launchd 自动重启或开机启动。
+版本晋升保留当前服务的 mock 模式，避免试用环境意外发起真实请求。start/restart 使用独立日志和固定发布路径，启动后校验实际 daemon 身份。stop 仍是原始停止请求，可能中断未完成工作；日常发布应使用 restart/promote 的排空流程。当前为脱离终端的后台进程管理，不包含 launchd 自动重启或开机启动。
 
 排空期间停止 cron 新触发，平台新输入得到维护提示，已接收任务、子查询、媒体、命令和投递继续完成。readiness 列出阻塞项；终态 failed 投递保留在数据库并报告数量，不自动重试。中断任务、待发送或未完成卡片仍会阻塞。超时保持原服务及 draining 状态，需要继续等待或 service resume。
 
@@ -62,3 +62,11 @@ recover 不恢复数据库、不重发历史消息，仅恢复兼容程序选择
 测试入口：cargo test --all-targets；cargo clippy --all-targets -- -D warnings；python3 scripts/test-environments.py（依赖已构建 target/debug/mac-cli）。集成测试只使用临时实例和 mock 服务，不接入正式 Bot。
 
 尚未实施：launchd 服务安装、外部依赖/Skills 不可变快照、配置导出工具、自动数据库迁移、跨机器身份租约和完整客户端端到端验收。这些不应被“版本隔离完成”一并视为已验证。
+
+## 本机部署记录（2026-10-08）
+
+统一入口安装到 ~/.local/bin/mac-cli，并在 /opt/homebrew/bin/mac-cli 提供链接。prod 沿用现有数据目录、20 个执行槽和现有 Codex 配置；dev 使用独立数据与 CODEX_HOME、4 个执行槽，仅创建 local Bot，当前以 mock 服务运行。两者通过同一固定 release 基线启动，可独立升级。
+
+已保留迁移前二进制和 SQLite 在线备份，首次迁移在空闲窗口完成，启动 interrupted=0。生产飞书监听 ready 已核对，但没有自动发送真实测试消息。真实开发 Bot 接入、开发 Codex 凭据和 Skills 配置仍需按后续试用需求完成，不从生产复制身份。
+
+若终端已经设置旧的 MAC_DATA_DIR，先 unset MAC_DATA_DIR，再通过 MAC_ENV 选择实例；启动器会拒绝冲突而不会猜测。开发用例验证后通过 service restart（不带 --mock）进入真实引擎模式；未配置独立模型凭据前保持 mock。

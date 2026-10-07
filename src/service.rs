@@ -29,6 +29,15 @@ pub async fn serve(store: Store, workers: usize, mock: bool) -> Result<()> {
             crate::runtime_identity::workspace_check(&store.root, &agent.workspace)?;
         }
     }
+    // Claim all initial platform identities before recovery, cron or outbound workers.
+    let mut identity_locks = std::collections::HashMap::new();
+    if !mock {
+        for bot in store.list::<Bot>("bot")? {
+            if bot.enabled || store.awaiting_owner(&bot)? {
+                identity_locks.insert(bot.id.clone(), crate::runtime_identity::bot_lock(&bot)?);
+            }
+        }
+    }
     store.initialize_defaults()?;
     store.save("control", "shutdown", &false)?;
     let recovered = store.recover()?;
@@ -116,7 +125,7 @@ pub async fn serve(store: Store, workers: usize, mock: bool) -> Result<()> {
           if store.get::<bool>("control","shutdown").unwrap_or(false){break;}
           store.save("control","daemon",&json!({"pid":std::process::id(),"state":"running","heartbeat":now(),"workers":workers,"mock":mock,"identity":crate::runtime_identity::identity(),"draining":crate::deployment::draining(&store)}))?;
           if !crate::deployment::draining(&store) { store.fire_due(now())?; }
-          for bot in store.list::<Bot>("bot")? {if !mock&&((bot.enabled&&bot.owner.is_some())||store.awaiting_owner(&bot)?)&&bot.channel!="local"&&!listening.contains(&bot.id){listening.insert(bot.id.clone());let s=store.clone();listeners.spawn(async move {listen(s,bot).await;});}}
+          for bot in store.list::<Bot>("bot")? {if !mock&&((bot.enabled&&bot.owner.is_some())||store.awaiting_owner(&bot)?)&&bot.channel!="local"&&!listening.contains(&bot.id){listening.insert(bot.id.clone());let s=store.clone();let lock=identity_locks.remove(&bot.id);listeners.spawn(async move {listen(s,bot,lock).await;});}}
           while jobs.len()<workers {let Some(t)=store.claim_agent(workers)? else{break;};let s=store.clone();jobs.spawn(async move {let id=t.id.clone();let generation=t.generation;if let Err(e)=execute(s.clone(),t,mock).await{let kind=application::execution::FailureKind::classify(&e);let _=s.event(&id,"execution_error",&json!({"error":e.to_string(),"failure_kind":kind}));let _=s.finish(&id,generation,kind.state(),&format!("Execution failed ({kind:?}): {e}"));}});}
           while shell_jobs.len()<4 {let Some(t)=store.claim_shell(4)? else{break;};let s=store.clone();shell_jobs.spawn(async move {let id=t.id.clone();let generation=t.generation;if let Err(e)=execute(s.clone(),t,mock).await{let kind=application::execution::FailureKind::classify(&e);let _=s.event(&id,"execution_error",&json!({"error":e.to_string(),"failure_kind":kind}));let _=s.finish(&id,generation,kind.state(),&format!("Execution failed ({kind:?}): {e}"));}});}
            expire_sessions(&store,86400)?;
@@ -1072,17 +1081,21 @@ async fn deliver(store: &Store) -> Result<()> {
     }
     Ok(())
 }
-async fn listen(store: Store, initial: Bot) {
-    let _identity_lock = loop {
-        match crate::runtime_identity::bot_lock(&initial) {
-            Ok(lock) => break lock,
-            Err(error) => {
-                let _ = store.save(
-                    "channel_health",
-                    &initial.id,
-                    &json!({"state":"blocked","error":error.to_string(),"checked_at":now()}),
-                );
-                tokio::time::sleep(Duration::from_secs(5)).await;
+async fn listen(store: Store, initial: Bot, acquired: Option<Option<std::fs::File>>) {
+    let _identity_lock = if let Some(lock) = acquired {
+        lock
+    } else {
+        loop {
+            match crate::runtime_identity::bot_lock(&initial) {
+                Ok(lock) => break lock,
+                Err(error) => {
+                    let _ = store.save(
+                        "channel_health",
+                        &initial.id,
+                        &json!({"state":"blocked","error":error.to_string(),"checked_at":now()}),
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
             }
         }
     };

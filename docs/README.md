@@ -23,6 +23,7 @@
 
 | 文档 | 分类 |
 | --- | --- |
+| [多版本环境执行计划](version-environments-plan.md) | 待实施：统一 mac-cli、环境变量选版本、prod/dev 隔离、发布和回滚 |
 | [媒体设计](media-design.md) | 目标设计；能力、默认限制以媒体实施文档和代码为准 |
 | [媒体后续阶段](media-next-stages.md) | M1 之后的 OCR/音视频路线；未实施部分明确留作计划 |
 | [首次启动检查](first-start-check.md) | 2026-09-28 起的操作记录及后续补记；机器状态与凭据应重新查询 |

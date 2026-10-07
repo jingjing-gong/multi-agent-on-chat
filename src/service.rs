@@ -24,6 +24,9 @@ pub async fn serve(store: Store, workers: usize, mock: bool) -> Result<()> {
         .open(store.root.join("service.lock"))?;
     lock.try_lock_exclusive()
         .context("another service owns this data directory")?;
+    for agent in store.list::<Agent>("agent")? {
+        crate::runtime_identity::workspace_check(&store.root, &agent.workspace)?;
+    }
     store.initialize_defaults()?;
     store.save("control", "shutdown", &false)?;
     let recovered = store.recover()?;
@@ -109,8 +112,8 @@ pub async fn serve(store: Store, workers: usize, mock: bool) -> Result<()> {
          Some(_)=listeners.join_next(),if !listeners.is_empty()=>{},
          _=timer.tick()=>{
           if store.get::<bool>("control","shutdown").unwrap_or(false){break;}
-          store.save("control","daemon",&json!({"pid":std::process::id(),"state":"running","heartbeat":now(),"workers":workers,"mock":mock}))?;
-          store.fire_due(now())?;
+          store.save("control","daemon",&json!({"pid":std::process::id(),"state":"running","heartbeat":now(),"workers":workers,"mock":mock,"identity":crate::runtime_identity::identity(),"draining":crate::deployment::draining(&store)}))?;
+          if !crate::deployment::draining(&store) { store.fire_due(now())?; }
           for bot in store.list::<Bot>("bot")? {if !mock&&((bot.enabled&&bot.owner.is_some())||store.awaiting_owner(&bot)?)&&bot.channel!="local"&&!listening.contains(&bot.id){listening.insert(bot.id.clone());let s=store.clone();listeners.spawn(async move {listen(s,bot).await;});}}
           while jobs.len()<workers {let Some(t)=store.claim_agent(workers)? else{break;};let s=store.clone();jobs.spawn(async move {let id=t.id.clone();let generation=t.generation;if let Err(e)=execute(s.clone(),t,mock).await{let kind=application::execution::FailureKind::classify(&e);let _=s.event(&id,"execution_error",&json!({"error":e.to_string(),"failure_kind":kind}));let _=s.finish(&id,generation,kind.state(),&format!("Execution failed ({kind:?}): {e}"));}});}
           while shell_jobs.len()<4 {let Some(t)=store.claim_shell(4)? else{break;};let s=store.clone();shell_jobs.spawn(async move {let id=t.id.clone();let generation=t.generation;if let Err(e)=execute(s.clone(),t,mock).await{let kind=application::execution::FailureKind::classify(&e);let _=s.event(&id,"execution_error",&json!({"error":e.to_string(),"failure_kind":kind}));let _=s.finish(&id,generation,kind.state(),&format!("Execution failed ({kind:?}): {e}"));}});}
@@ -315,6 +318,8 @@ async fn execute_codex(store: Store, t: Task) -> Result<()> {
     }
     environment.extend([
         ("MAC_CLI".into(), cli),
+        ("MAC_INTERNAL_TASK".into(), "1".into()),
+        ("MAC_VERSION".into(), env!("MAC_BUILD_RELEASE_ID").into()),
         (
             "MAC_DATA_DIR".into(),
             std::fs::canonicalize(&store.root)?
@@ -1066,6 +1071,19 @@ async fn deliver(store: &Store) -> Result<()> {
     Ok(())
 }
 async fn listen(store: Store, initial: Bot) {
+    let _identity_lock = loop {
+        match crate::runtime_identity::bot_lock(&initial) {
+            Ok(lock) => break lock,
+            Err(error) => {
+                let _ = store.save(
+                    "channel_health",
+                    &initial.id,
+                    &json!({"state":"blocked","error":error.to_string(),"checked_at":now()}),
+                );
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    };
     let mut cursor = store
         .get::<String>("cursor", &initial.id)
         .unwrap_or_default();
@@ -1176,6 +1194,30 @@ async fn ingest(store: &Store, bot: &Bot, m: channels::Incoming) -> Result<()> {
     let a: Agent = store.get("agent", &agent)?;
     if a.bot_id != bot.id {
         bail!("route belongs to different bot");
+    }
+    if crate::deployment::draining(store) {
+        let mut c = store.conn()?;
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if tx.execute(
+            "INSERT OR IGNORE INTO receipts(bot_id,event_id) VALUES(?1,?2)",
+            params![bot.id, m.event_id],
+        )? == 1
+        {
+            let target = m.reply.clone();
+            let id = new_id("maintenance");
+            tx.execute(
+                "INSERT INTO deliveries(id,task_id,bot_id,target,text) VALUES(?1,?2,?3,?4,?5)",
+                params![
+                    id,
+                    id,
+                    bot.id,
+                    serde_json::to_string(&target)?,
+                    "服务正在更新，暂不接收新任务；请稍后重发本条请求。"
+                ],
+            )?;
+        }
+        tx.commit()?;
+        return Ok(());
     }
     if m.untranscribed_voice > 0 {
         let mut c = store.conn()?;

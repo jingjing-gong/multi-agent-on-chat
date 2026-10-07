@@ -1,6 +1,6 @@
 # 当前架构与运行契约
 
-核对日期：2026-10-05。本文描述当前代码中的实现，作为设计主入口；操作语法见[命令参考](commands.md)，专题和验证边界见[文档索引](README.md)。早期方案保留在[历史目录](history/README.md)，不作为现行契约。代码事实与部署、验收状态必须分开；未来方案不混入下列实现说明。
+核对日期：2026-10-08。本文描述当前代码中的实现，作为设计主入口；操作语法见[命令参考](commands.md)，专题和验证边界见[文档索引](README.md)。早期方案保留在[历史目录](history/README.md)，不作为现行契约。代码事实与部署、验收状态必须分开；未来方案不混入下列实现说明。
 
 ## 1. 范围与模块
 
@@ -107,3 +107,10 @@ Skills 支持继承和允许列表，配置路径/依赖在引擎连接时解析
 | 媒体快照与发布 | [media](../src/media/mod.rs)、[application media](../src/application/media.rs) | [media_publish](../tests/media_publish.rs)、[media_assets](../tests/media_assets.rs)、[media_extractions](../tests/media_extractions.rs) |
 
 本次整理核对了以上代码入口和现存测试定义，没有重新执行真实平台验收或全套运行测试。
+
+
+## 11. 多版本实例
+
+统一 mac-cli 启动器由 MAC_ENV 选择已登记实例、MAC_VERSION 选择固定发布版本；默认 prod。实例绑定独立数据与可选 CODEX_HOME；生产拒绝 dirty 产物，写控制拒绝与活跃服务版本不一致。release 文件不覆盖，启动检查 SHA-256。详细接口见[环境操作](environments.md)。
+
+服务以平台 channel/account_id 获取本机监听锁，Agent/Session 工作目录在登记实例间检查重叠。排空停止新 cron 与平台工作接入，已接收工作继续处理；发布 readiness 检查任务、媒体、命令、卡片和待发送消息，终态失败投递单独报告。当前只支持数据库 schema 3 的托管发布，兼容检查在 Store::open 写入前执行；无自动 schema 迁移或 launchd 安装。

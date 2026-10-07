@@ -1,5 +1,7 @@
 # multi-agent-on-chat
 
+多版本入口仍为 mac-cli：MAC_ENV=dev mac-cli status 选择开发实例，MAC_VERSION 可选固定版本。安装与排空发布见[环境操作](docs/environments.md)。源码二进制需通过启动器登记后才具有托管环境选择行为。
+
 设计入口：[文档索引](docs/README.md) · [当前架构](docs/current-design.md) · [现行命令参考](docs/commands.md)。历史方案集中在 docs/history；下文保留使用和操作说明。
 
 渐进回复支持按 Bot 开关：微信完整进度消息、飞书 CardKit 流式卡片，共用任务输出与持久化投递状态。配置、降级与验收边界见 [渐进回复说明](docs/reply-streaming.md)。

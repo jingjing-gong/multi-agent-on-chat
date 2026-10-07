@@ -11,6 +11,7 @@ pub struct Store {
 }
 impl Store {
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
+        crate::runtime_identity::preflight(root.as_ref())?;
         std::fs::create_dir_all(root.as_ref())?;
         #[cfg(unix)]
         {
@@ -314,6 +315,7 @@ impl Store {
         }
         let config: Template = Self::get_c(&tx, "template", template)?;
         let workspace = workspace.canonicalize().context("workspace must exist")?;
+        crate::runtime_identity::workspace_check(&self.root, &workspace)?;
         if !workspace.is_dir() {
             bail!("workspace is not a directory");
         }
@@ -375,6 +377,7 @@ impl Store {
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut a: Agent = Self::get_c(&tx, "agent", id)?;
         change(&mut a)?;
+        crate::runtime_identity::workspace_check(&self.root, &a.workspace)?;
         a.config.validate()?;
         a.revision += 1;
         Self::put(&tx, "agent", id, &a)?;

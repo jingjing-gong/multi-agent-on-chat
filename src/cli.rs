@@ -18,7 +18,23 @@ struct Cli {
     command: Cmd,
 }
 #[derive(Subcommand)]
+enum ServiceCmd {
+    Drain,
+    Resume,
+    Readiness,
+}
+#[derive(Subcommand)]
 enum Cmd {
+    /// Show build identity without opening or creating a database.
+    Version {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Pause new work or inspect deployment readiness.
+    Service {
+        #[command(subcommand)]
+        command: ServiceCmd,
+    },
     Media {
         #[command(subcommand)]
         command: MediaCmd,
@@ -372,8 +388,30 @@ pub async fn entry() {
 }
 async fn run() -> Result<()> {
     let cli = Cli::parse();
-    let store = Store::open(cli.data_dir.unwrap_or_else(root))?;
+    if let Cmd::Version { .. } = &cli.command {
+        return print(crate::runtime_identity::identity());
+    }
+    let data = cli.data_dir.unwrap_or_else(root);
+    crate::runtime_identity::preflight(&data)?;
+    let store = Store::open(data)?;
+    let diagnostic = matches!(&cli.command, Cmd::Status | Cmd::Service { .. } | Cmd::Stop);
+    if crate::deployment::draining(&store)
+        && !diagnostic
+        && std::env::var("MAC_INTERNAL_TASK").as_deref() != Ok("1")
+    {
+        anyhow::bail!("instance is draining; service resume to accept new work");
+    }
+
     match cli.command {
+        Cmd::Version { .. } => unreachable!(),
+        Cmd::Service { command } => {
+            match command {
+                ServiceCmd::Drain => store.save("control", "draining", &true)?,
+                ServiceCmd::Resume => store.save("control", "draining", &false)?,
+                ServiceCmd::Readiness => {}
+            }
+            print(crate::deployment::readiness(&store)?)
+        }
         Cmd::Skills { agent, command } => {
             let command = shlex::try_join(command.iter().map(String::as_str))
                 .map_err(|_| anyhow::anyhow!("invalid Skill argument"))?;
@@ -686,7 +724,9 @@ async fn run() -> Result<()> {
             let daemon = store
                 .get::<serde_json::Value>("control", "daemon")
                 .unwrap_or(json!(null));
-            print(json!({"tasks":counts,"data_dir":store.root,"max_workers":20,"daemon":daemon}))
+            print(
+                json!({"tasks":counts,"data_dir":store.root,"max_workers":20,"daemon":daemon,"caller":crate::runtime_identity::identity(),"draining":crate::deployment::draining(&store)}),
+            )
         }
         Cmd::Doctor => {
             let codex = tokio::process::Command::new("codex")

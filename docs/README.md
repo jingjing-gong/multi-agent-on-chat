@@ -7,6 +7,7 @@
 | 文档 | 用途与边界 |
 | --- | --- |
 | [当前架构](current-design.md) | 领域对象、模块、消息/任务/协作/cron、配置、并发和恢复的唯一总览 |
+| [多版本环境操作](environments.md) | 已实现统一启动器、固定版本、实例隔离、排空及兼容版本发布；部署状态以实际查询为准 |
 | [命令参考](commands.md) | 已实现聊天命令、配置与回复语义；参数以 /help 和 CLI --help 为准 |
 | [项目 README](../README.md) | 构建、运行和使用示例 |
 | [命令架构](command-architecture.md) | application 分层、Scope、分页、错误分类与投递边界 |
@@ -23,7 +24,7 @@
 
 | 文档 | 分类 |
 | --- | --- |
-| [多版本环境执行计划](version-environments-plan.md) | 待实施：统一 mac-cli、环境变量选版本、prod/dev 隔离、发布和回滚 |
+| [多版本环境执行计划](version-environments-plan.md) | 原始分阶段计划；本轮已实现范围及剩余工作见操作文档 |
 | [媒体设计](media-design.md) | 目标设计；能力、默认限制以媒体实施文档和代码为准 |
 | [媒体后续阶段](media-next-stages.md) | M1 之后的 OCR/音视频路线；未实施部分明确留作计划 |
 | [首次启动检查](first-start-check.md) | 2026-09-28 起的操作记录及后续补记；机器状态与凭据应重新查询 |

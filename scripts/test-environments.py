@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
 """Isolated launcher integration; never contacts channels or production data."""
-import hashlib,json,os,subprocess,sys,tempfile,time
+import hashlib,importlib.util,json,os,sqlite3,subprocess,sys,tempfile,time
 from pathlib import Path
 
 repo=Path(__file__).resolve().parent.parent
 binary=repo/'target/debug/mac-cli';launcher=repo/'scripts/mac-launcher.py'
 with tempfile.TemporaryDirectory(prefix='mac-env-test-') as temp:
     root=Path(temp);install=root/'install';env={**os.environ,'MAC_INSTALL_ROOT':str(install),'MAC_ENV':'dev'}
+    spec=importlib.util.spec_from_file_location('mac_launcher',launcher)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    database=root/'inspection.sqlite3'
+    connection=sqlite3.connect(database)
+    connection.executescript('PRAGMA journal_mode=WAL; CREATE TABLE probe(value TEXT); INSERT INTO probe VALUES ("preserved");')
+    connection.close()
+    connection=module.inspect_database(database)
+    assert connection.execute('SELECT value FROM probe').fetchone()==('preserved',)
+    try:
+        connection.execute('INSERT INTO probe VALUES ("unexpected")')
+        raise AssertionError('inspection accepted a database write')
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        connection.close()
+    missing=root/'missing.sqlite3'
+    try:
+        module.inspect_database(missing)
+        raise AssertionError('inspection created a missing database')
+    except sqlite3.OperationalError:
+        assert not missing.exists()
     for key in ['MAC_DATA_DIR','MAC_VERSION','MAC_INSTANCE_ID','MAC_BOUND_DATA_DIR','MAC_INTERNAL_TASK']:env.pop(key,None)
     def call(*args,ok=True,extra=None):
         r=subprocess.run([sys.executable,str(launcher),*args],env={**env,**(extra or {})},capture_output=True,text=True,timeout=35)
@@ -26,8 +47,12 @@ with tempfile.TemporaryDirectory(prefix='mac-env-test-') as temp:
     call('status',ok=False,extra={'MAC_DATA_DIR':str(root/'test')})
     call('release','install',str(binary),ok=False)
     before=hashlib.sha256((root/'test/runtime.sqlite3').read_bytes()).hexdigest()
-    result=call('service','start','--mock');assert result['state']=='running'
+    sentinel='isolated-daemon-must-not-inherit-task-credentials'
+    result=call('service','start','--mock',extra={'LARKSUITE_CLI_TENANT_ACCESS_TOKEN':sentinel,'CODEX_WECHAT_CODEX_BIN':sentinel,'MAC_INTERNAL_TASK':sentinel});assert result['state']=='running'
     try:
+        process_environment=subprocess.check_output(['ps','eww','-p',str(result['pid']),'-o','command='],text=True)
+        assert sentinel not in process_environment
+        assert ((root/'dev/service.lock').stat().st_mode & 0o077)==0
         status=call('status');assert status['daemon']['identity']['release']==release
         assert call('service','drain')['ready'] is True
         call('init',ok=False)

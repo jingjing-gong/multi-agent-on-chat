@@ -114,3 +114,5 @@ Skills 支持继承和允许列表，配置路径/依赖在引擎连接时解析
 统一 mac-cli 启动器由 MAC_ENV 选择已登记实例、MAC_VERSION 选择固定发布版本；默认 prod。实例绑定独立数据与可选 CODEX_HOME；生产拒绝 dirty 产物，写控制拒绝与活跃服务版本不一致。release 文件不覆盖，启动检查 SHA-256。详细接口见[环境操作](environments.md)。
 
 服务以平台 channel/account_id 获取本机监听锁，Agent/Session 工作目录在登记实例间检查重叠。排空停止新 cron 与平台工作接入，已接收工作继续处理；发布 readiness 检查任务、媒体、命令、卡片和待发送消息，终态失败投递单独报告。当前只支持数据库 schema 3 的托管发布，兼容检查在 Store::open 写入前执行；无自动 schema 迁移或 launchd 安装。
+
+启动器创建服务子进程时清除父任务的渠道身份与任务标识，设置 `umask 077`。数据库检查通过 `mode=rw` 加 `PRAGMA query_only=ON` 禁止业务写入并避免创建缺失数据库，同时允许 SQLite 管理 WAL 辅助文件；这不是文件系统级只读。独立 supervisor 仍是[待实现方案](supervisor-plan.md)，不能作为当前恢复保障。

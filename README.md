@@ -1,8 +1,12 @@
 # multi-agent-on-chat
 
+GitHub 仓库：[jingjing-gong/multi-agent-on-chat](https://github.com/jingjing-gong/multi-agent-on-chat)，SSH 地址为 `git@github.com:jingjing-gong/multi-agent-on-chat.git`。开发验证、提交和发布约定见[开发维护指南](docs/development.md)。
+
 多版本入口仍为 mac-cli：MAC_ENV=dev mac-cli status 选择开发实例，MAC_VERSION 可选固定版本。安装与排空发布见[环境操作](docs/environments.md)。源码二进制需通过启动器登记后才具有托管环境选择行为。
 
 设计入口：[文档索引](docs/README.md) · [当前架构](docs/current-design.md) · [现行命令参考](docs/commands.md)。历史方案集中在 docs/history；下文保留使用和操作说明。
+
+dev 是开发与恢复入口，prod 承载主要日常使用；运行实例与 Git 提交独立。独立 supervisor / launchd 守护尚未实现，目标及验收条件见[监督与恢复方案](docs/supervisor-plan.md)。
 
 渐进回复支持按 Bot 开关：微信完整进度消息、飞书 CardKit 流式卡片，共用任务输出与持久化投递状态。配置、降级与验收边界见 [渐进回复说明](docs/reply-streaming.md)。
 

@@ -11,6 +11,15 @@ def fail(message):
 def read(path):
     return json.loads(Path(path).read_text())
 
+def inspect_database(path):
+    connection=sqlite3.connect(Path(path).as_uri()+'?mode=rw',uri=True)
+    try:
+        connection.execute('PRAGMA query_only=ON')
+        return connection
+    except Exception:
+        connection.close()
+        raise
+
 def atomic(path, value):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
@@ -58,7 +67,7 @@ def resolved(v, override=True):
 def db_daemon(data):
     db=data/'runtime.sqlite3'
     if not db.exists():return None
-    c=sqlite3.connect(db.as_uri()+'?mode=ro',uri=True)
+    c=inspect_database(db)
     try:
         version=c.execute('PRAGMA user_version').fetchone()[0]
         if version!=3:fail('Managed environments require database schema 3; migrate explicitly first')
@@ -93,6 +102,9 @@ def operation(name):
 
 def start(v,mock=False):
     binary,m,data,env=resolved(v,False)
+    for key in list(env):
+        if key.startswith(('LARKSUITE_','CODEX_WECHAT_')) or key in ['MAC_BOT_ID','MAC_AGENT_ID','MAC_INTERNAL_TASK','CODEX_THREAD_ID','CODEX_SESSION_ID']:
+            env.pop(key)
     if v['name']=='prod' and m.get('dirty'):fail('Production requires a clean release')
     if live(data):fail('Instance already running')
     # Resume a previously drained instance only when no server owns it.
@@ -101,7 +113,7 @@ def start(v,mock=False):
     args=[str(binary),'--data-dir',str(data),'serve','--workers',str(v.get('workers',4))]
     if mock:args.append('--mock')
     with log.open('ab') as stream:
-        p=subprocess.Popen(args,env=env,stdin=subprocess.DEVNULL,stdout=stream,stderr=stream,start_new_session=True)
+        p=subprocess.Popen(args,env=env,stdin=subprocess.DEVNULL,stdout=stream,stderr=stream,start_new_session=True,umask=0o077)
     atomic(data/'background-process.json',{'pid':p.pid,'log':str(log),'started_at':int(time.time()),'release':m['release_id']})
     for _ in range(100):
         if p.poll() is not None:fail(f'Service exited; inspect {log}')
@@ -172,7 +184,7 @@ def register(args):
         if (data/'instance.json').exists():fail('Directory already has an instance marker')
         v={'name':name,'instance_id':str(uuid.uuid4()),'release':args.release,'data_dir':str(data),'workers':args.workers,'codex_home':str(Path(args.codex_home).expanduser().resolve()) if args.codex_home else None}
         if args.adopt_existing and (data/'runtime.sqlite3').exists():
-            with sqlite3.connect((data/'runtime.sqlite3').as_uri()+'?mode=ro',uri=True) as c:
+            with contextlib.closing(inspect_database(data/'runtime.sqlite3')) as c:
                 if c.execute('PRAGMA user_version').fetchone()[0]!=3:fail('Managed adoption requires database schema 3')
         data.mkdir(parents=True,exist_ok=True)
         atomic(data/'instance.json',{'name':name,'instance_id':v['instance_id'],'format_version':1})
@@ -240,7 +252,7 @@ def main(argv):
     if v['name']=='prod' and m['release_id']!=v['release'] and not diagnostic:fail('Production write requires registered release')
     daemon=db_daemon(d)
     if (d/'runtime.sqlite3').exists() and not diagnostic and os.environ.get('MAC_INTERNAL_TASK')!='1' and argv[:1]!=['stop'] and argv[:1]!=['service']:
-        with sqlite3.connect((d/'runtime.sqlite3').as_uri()+'?mode=ro',uri=True) as c:
+        with contextlib.closing(inspect_database(d/'runtime.sqlite3')) as c:
             row=c.execute("SELECT data FROM records WHERE kind='control' AND id='draining'").fetchone()
             if row and json.loads(row[0]):fail('Instance is draining; resume before submitting new commands')
     if live(d) and daemon and daemon.get('identity',{}).get('release')!=m['release_id']:
